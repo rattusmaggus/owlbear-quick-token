@@ -28,7 +28,7 @@ OBR.onReady(() => {
       const item = context.items[0];
       OBR.modal.open({
         id: `${ID}/modal`,
-        url: here(`token.html?v=3&item=${encodeURIComponent(item.id)}`),
+        url: here(`token.html?v=4&item=${encodeURIComponent(item.id)}`),
         width: 360,
         height: 560,
       });

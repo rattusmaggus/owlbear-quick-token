@@ -26,21 +26,32 @@
 </style>
 </head>
 <body>
-  <h1>Make Token <small style="font-weight:400;opacity:.5">v3</small></h1>
+  <h1>Make Token <small style="font-weight:400;opacity:.5">v4</small></h1>
   <div class="preview"><canvas id="cv" width="512" height="512"></canvas></div>
   <div>Border</div>
   <div class="borders" id="borders"></div>
+  <div>Size</div>
+  <div class="borders" id="sizes"></div>
   <input type="text" id="name" placeholder="Token name">
-  <div id="msg">Saves the token to your Characters library, then swaps it onto the map.</div>
+  <div id="msg">Step 1 uploads the token to your Characters library. Step 2 swaps it onto the map.</div>
   <div class="row">
     <button id="cancel">Cancel</button>
-    <button id="save" disabled>Save &amp; Swap on Map</button>
+    <button id="save" disabled>1. Upload to Library</button>
+    <button id="swap" disabled>2. Swap on Map</button>
   </div>
 
 <script type="module">
   import OBR from "https://cdn.jsdelivr.net/npm/@owlbear-rodeo/sdk@3.0.0/+esm";
 
-  const OUT = 512;
+  const SIZES = [
+    { name: "Medium", cells: 1 },
+    { name: "Large", cells: 2 },
+    { name: "Huge", cells: 3 },
+    { name: "Gargantuan", cells: 4 },
+  ];
+  let cells = 1;
+  let OUT = 512; // pixel resolution, grows with token size
+  const outFor = (c) => Math.max(512, 256 * c);
   const META = "com.quick-token/original";
   const $ = (id) => document.getElementById(id);
   const itemId = new URLSearchParams(location.search).get("item");
@@ -58,6 +69,8 @@
   // Square crop: horizontally centered, vertically aligned to the TOP.
   function draw() {
     const cv = $("cv"), ctx = cv.getContext("2d");
+    OUT = outFor(cells);
+    cv.width = cv.height = OUT;
     ctx.clearRect(0, 0, OUT, OUT);
     const side = Math.min(base.width, base.height);
     const sx = (base.width - side) / 2;
@@ -100,6 +113,20 @@
       list.forEach((b, i) => add(b.name, new URL("borders/" + b.file, location.href).href, i));
     } catch (e) { console.warn("no borders.json", e); }
 
+    const sz = $("sizes");
+    SIZES.forEach((z) => {
+      const d = document.createElement("div");
+      d.className = "b" + (z.cells === cells ? " sel" : "");
+      d.innerHTML = `<b>${z.cells}×${z.cells}</b><br>${z.name}`;
+      d.onclick = () => {
+        sz.querySelectorAll(".b").forEach((x) => x.classList.remove("sel"));
+        d.classList.add("sel");
+        cells = z.cells;
+        draw();
+      };
+      sz.appendChild(d);
+    });
+
     draw();
     $("save").disabled = false;
   }
@@ -121,7 +148,7 @@
     });
     const name = $("name").value.trim() || "Token";
     const side = Math.min(base.width, base.height);
-    const dpi = (OUT * item.grid.dpi) / side; // same on-map size as the original
+    const dpi = OUT / cells; // image pixels per grid square -> token covers cells x cells
     return { blob, dataUrl, name, dpi };
   }
 
@@ -153,19 +180,36 @@
     } catch (_) {}
   }
 
+  let uploadedName = "";
+
+  // STEP 1: upload to the Characters library
   $("save").onclick = async () => {
     let step = "preparing image";
     try {
       $("save").disabled = true;
       const out = await makeOutput();
+      uploadedName = out.name;
 
       step = "saving to library";
-      $("msg").textContent = "1/2 Confirm Owlbear's upload dialog…";
+      $("msg").textContent = "Confirm Owlbear's upload dialog…";
       await uploadToLibrary(out);
 
-      step = "picking the saved token";
-      $("msg").textContent = "2/2 Select your new token in the picker and confirm.";
-      const picked = await OBR.assets.downloadImages(false, out.name, "CHARACTER");
+      $("msg").textContent = "Uploaded. When the upload dialog has closed, click “2. Swap on Map”.";
+      $("swap").disabled = false;
+    } catch (e) {
+      console.error("[Quick Token] failed while " + step, e);
+      $("msg").textContent = `Failed while ${step}: ${errText(e)}`;
+      $("save").disabled = false;
+    }
+  };
+
+  // STEP 2: pick the uploaded token and swap it onto the map item
+  $("swap").onclick = async () => {
+    let step = "picking the saved token";
+    try {
+      $("swap").disabled = true;
+      $("msg").textContent = "Select your new token in the picker and confirm.";
+      const picked = await OBR.assets.downloadImages(false, uploadedName, "CHARACTER");
       if (!picked || !picked.length) throw new Error("nothing was selected");
 
       step = "swapping the image on the map";
@@ -174,6 +218,7 @@
         for (const it of items) {
           it.image = picked[0].image;
           it.grid = picked[0].grid;
+          it.scale = { x: 1, y: 1 };
         }
       });
       OBR.notification.show("Token applied", "SUCCESS");
@@ -182,7 +227,7 @@
       console.error("[Quick Token] failed while " + step, e);
       if (step === "swapping the image on the map") await clearOriginalMeta();
       $("msg").textContent = `Failed while ${step}: ${errText(e)}`;
-      $("save").disabled = false;
+      $("swap").disabled = false;
     }
   };
 
