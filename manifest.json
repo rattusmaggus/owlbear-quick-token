@@ -1,7 +1,7 @@
 {
   "name": "Quick Token",
   "version": "1.3.0",
-  "manifest_version": 1,
+  "manifest_version": 1.3,
   "description": "Select a character image, turn it into a circular token with an optional border.",
   "author": "rattusmaggus",
   "icon": "https://rattusmaggus.github.io/owlbear-quick-token/icon.svg",
