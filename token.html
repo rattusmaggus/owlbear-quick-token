@@ -1,41 +1,158 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Token</title>
-    <style>
-      body { font-family: sans-serif; margin: 0; padding: 16px; background: #222639; color: #fff; }
-      h2 { margin-top: 0; }
-      .row { margin: 8px 0; font-size: 14px; }
-      .label { opacity: 0.6; }
-      button { margin-top: 16px; padding: 8px 14px; border: 0; border-radius: 6px; cursor: pointer; }
-    </style>
-  </head>
-  <body>
-    <h2 id="name">Loading...</h2>
-    <div class="row"><span class="label">ID:</span> <span id="id"></span></div>
-    <div class="row"><span class="label">Position:</span> <span id="pos"></span></div>
-    <button id="close">Close</button>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --fg:#222; --bg:#fff; --card:#f1f2f6; --accent:#6f5ee6; --sel:#6f5ee6; }
+  @media (prefers-color-scheme: dark) { :root { --fg:#eee; --bg:#222639; --card:#2e3350; } }
+  * { box-sizing:border-box; }
+  body { font:14px system-ui,sans-serif; color:var(--fg); background:var(--bg); margin:0; padding:14px; display:flex; flex-direction:column; gap:12px; }
+  h1 { font-size:16px; margin:0; }
+  .preview { align-self:center; width:240px; height:240px; background:
+     conic-gradient(#8883 25%, transparent 0 50%, #8883 0 75%, transparent 0) 0 0/20px 20px; border-radius:8px; }
+  canvas { width:100%; height:100%; display:block; }
+  .borders { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; max-height:130px; overflow-y:auto; }
+  .b { background:var(--card); border:2px solid transparent; border-radius:8px; padding:4px; cursor:pointer; text-align:center; font-size:11px; color:var(--fg); }
+  .b img { width:100%; aspect-ratio:1; object-fit:contain; display:block; }
+  .b.sel { border-color:var(--sel); }
+  input[type=text] { width:100%; padding:8px; border-radius:6px; border:1px solid #8886; background:var(--card); color:var(--fg); }
+  .row { display:flex; gap:8px; }
+  button { flex:1; padding:10px; border:0; border-radius:8px; font-weight:600; cursor:pointer; }
+  #save { background:var(--accent); color:#fff; }
+  #cancel { background:var(--card); color:var(--fg); }
+  button:disabled { opacity:.5; cursor:default; }
+  #msg { min-height:18px; font-size:12px; opacity:.8; }
+</style>
+</head>
+<body>
+  <h1>Make Token</h1>
+  <div class="preview"><canvas id="cv" width="512" height="512"></canvas></div>
+  <div>Border</div>
+  <div class="borders" id="borders"></div>
+  <input type="text" id="name" placeholder="Token name">
+  <label style="display:flex;gap:8px;align-items:center;font-size:13px">
+    <input type="checkbox" id="alsoSave"> Also save a copy to my Characters library
+  </label>
+  <div id="msg"></div>
+  <div class="row">
+    <button id="cancel">Cancel</button>
+    <button id="save" disabled>Apply Token</button>
+  </div>
 
-    <script type="module">
-      import OBR from "https://cdn.jsdelivr.net/npm/@owlbear-rodeo/sdk@3.0.0/+esm";
+<script type="module">
+  import OBR from "https://cdn.jsdelivr.net/npm/@owlbear-rodeo/sdk@3.0.0/+esm";
 
-      const tokenId = new URLSearchParams(location.search).get("id");
+  const OUT = 512;
+  const META = "com.quick-token/original";
+  const $ = (id) => document.getElementById(id);
+  const itemId = new URLSearchParams(location.search).get("item");
+  let item, base, borderImg = null, borderIdx = -1; // -1 = no border
 
-      OBR.onReady(async () => {
-        const [item] = await OBR.scene.items.getItems([tokenId]);
-        if (!item) {
-          document.getElementById("name").textContent = "Token not found";
-        } else {
-          document.getElementById("name").textContent = item.text?.plainText || item.name || "Unnamed token";
-          document.getElementById("id").textContent = item.id;
-          document.getElementById("pos").textContent =
-            `${Math.round(item.position.x)}, ${Math.round(item.position.y)}`;
-        }
-        document.getElementById("close").onclick = () =>
-          OBR.popover.close("com.yourname.token-viewer/popover");
+  const loadImg = (src) =>
+    new Promise((res, rej) => {
+      const i = new Image();
+      i.crossOrigin = "anonymous";
+      i.onload = () => res(i);
+      i.onerror = () => rej(new Error("could not load " + src));
+      i.src = src;
+    });
+
+  // Square crop: horizontally centered, vertically aligned to the TOP.
+  function draw() {
+    const cv = $("cv"), ctx = cv.getContext("2d");
+    ctx.clearRect(0, 0, OUT, OUT);
+    const side = Math.min(base.width, base.height);
+    const sx = (base.width - side) / 2;
+    const sy = 0;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(OUT / 2, OUT / 2, OUT / 2, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(base, sx, sy, side, side, 0, 0, OUT, OUT);
+    ctx.restore();
+    if (borderImg) ctx.drawImage(borderImg, 0, 0, OUT, OUT);
+  }
+
+  async function init() {
+    await new Promise((r) => OBR.onReady(r));
+    const items = await OBR.scene.items.getItems([itemId]);
+    item = items[0];
+    if (!item) throw new Error("Item not found");
+    $("name").value = (item.name || item.text?.plainText || "Token").trim();
+    base = await loadImg(item.image.url);
+
+    // Border picker (files listed in borders.json inside /borders)
+    const wrap = $("borders");
+    const add = (label, src, idx) => {
+      const d = document.createElement("div");
+      d.className = "b" + (idx === -1 ? " sel" : "");
+      d.innerHTML = (src ? `<img src="${src}">` : `<img alt="">`) + label;
+      d.onclick = async () => {
+        wrap.querySelectorAll(".b").forEach((x) => x.classList.remove("sel"));
+        d.classList.add("sel");
+        borderIdx = idx;
+        borderImg = src ? await loadImg(src) : null;
+        draw();
+      };
+      wrap.appendChild(d);
+    };
+    add("None", null, -1);
+    try {
+      const list = (await (await fetch(new URL("borders.json", location.href))).json()).borders;
+      list.forEach((b, i) => add(b.name, new URL("borders/" + b.file, location.href).href, i));
+    } catch (e) { console.warn("no borders.json", e); }
+
+    draw();
+    $("save").disabled = false;
+  }
+
+  $("cancel").onclick = () => OBR.modal.close("com.quick-token/modal");
+
+  $("save").onclick = async () => {
+    $("save").disabled = true;
+    $("msg").textContent = "Applying…";
+    try {
+      const blob = await new Promise((r) => $("cv").toBlob(r, "image/png"));
+      const dataUrl = await new Promise((res) => {
+        const fr = new FileReader();
+        fr.onload = () => res(fr.result);
+        fr.readAsDataURL(blob);
       });
-    </script>
-  </body>
+      const name = $("name").value.trim() || "Token";
+      const side = Math.min(base.width, base.height);
+      const dpi = (OUT * item.grid.dpi) / side; // same on-map size as the original
+
+      // 1) Turn the item on the map into the token (the library original is untouched)
+      await OBR.scene.items.updateItems([itemId], (items) => {
+        for (const it of items) {
+          if (!it.metadata[META]) {
+            // remember the original so "Revert Token" can restore it
+            it.metadata[META] = { image: it.image, grid: it.grid };
+          }
+          it.image = { ...it.image, url: dataUrl, width: OUT, height: OUT, mime: "image/png" };
+          it.grid = { dpi, offset: { x: OUT / 2, y: OUT / 2 } };
+        }
+      });
+
+      // 2) Optional: also add the token to the Characters library as a new image
+      if ($("alsoSave").checked) {
+        await OBR.assets.uploadImages(
+          [{ file: new File([blob], name + ".png", { type: "image/png" }), name,
+             grid: { dpi, offset: { x: OUT / 2, y: OUT / 2 } } }],
+          "CHARACTER"
+        );
+      }
+      OBR.notification.show(`Token applied`, "SUCCESS");
+      OBR.modal.close("com.quick-token/modal");
+    } catch (e) {
+      console.error(e);
+      $("msg").textContent = "Failed: " + e.message;
+      $("save").disabled = false;
+    }
+  };
+
+  init().catch((e) => { $("msg").textContent = "Error: " + e.message; });
+</script>
+</body>
 </html>
