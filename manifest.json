@@ -1,16 +1,16 @@
 {
-  "name": "Quick Token",
+  "name": "Jumpscare",
   "version": "1.0.0",
   "manifest_version": 1,
-  "description": "Select a character image, turn it into a circular token (with optional border) and save it to your Characters library.",
-  "author": "RattusMaggus",
-  "icon": "icon.svg",
+  "description": "Mark creatures with Jumpscare. When a player's token gets close, they get a literal jumpscare.",
+  "author": "rattusmaggus",
+  "icon": "https://rattusmaggus.github.io/owlbear-jumpscare/icon.svg",
+  "background_url": "https://rattusmaggus.github.io/owlbear-jumpscare/background.html",
   "action": {
-    "title": "Quick Token",
-    "icon": "icon.svg",
-    "popover": "help.html",
-    "height": 150,
-    "width": 260
-  },
-  "background_url": "background.html"
+    "title": "Jumpscare settings",
+    "icon": "https://rattusmaggus.github.io/owlbear-jumpscare/icon.svg",
+    "popover": "https://rattusmaggus.github.io/owlbear-jumpscare/popover.html",
+    "width": 280,
+    "height": 480
+  }
 }
