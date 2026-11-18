@@ -39,6 +39,9 @@
     <button id="cancel">Cancel</button>
     <button id="save" disabled>Apply Token</button>
   </div>
+  <div class="row" id="fallbackRow" style="display:none">
+    <button id="fallback" style="background:var(--card);color:var(--fg)">Save to library instead</button>
+  </div>
 
 <script type="module">
   import OBR from "https://cdn.jsdelivr.net/npm/@owlbear-rodeo/sdk@3.0.0/+esm";
@@ -109,46 +112,75 @@
 
   $("cancel").onclick = () => OBR.modal.close("com.quick-token/modal");
 
+  const errText = (e) =>
+    (e && (e.message || (e.error && (e.error.message || e.error.name)))) ||
+    (typeof e === "string" ? e : JSON.stringify(e)) || "unknown error";
+
+  async function makeOutput() {
+    const blob = await new Promise((r, j) =>
+      $("cv").toBlob((b) => (b ? r(b) : j(new Error("could not export the canvas"))), "image/png"));
+    const dataUrl = await new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result);
+      fr.onerror = () => rej(new Error("could not read image data"));
+      fr.readAsDataURL(blob);
+    });
+    const name = $("name").value.trim() || "Token";
+    const side = Math.min(base.width, base.height);
+    const dpi = (OUT * item.grid.dpi) / side; // same on-map size as the original
+    return { blob, dataUrl, name, dpi };
+  }
+
+  async function uploadToLibrary({ blob, name, dpi }) {
+    await OBR.assets.uploadImages(
+      [{ file: new File([blob], name + ".png", { type: "image/png" }), name,
+         grid: { dpi, offset: { x: OUT / 2, y: OUT / 2 } } }],
+      "CHARACTER"
+    );
+  }
+
   $("save").onclick = async () => {
     $("save").disabled = true;
     $("msg").textContent = "Applying…";
+    let step = "preparing image";
     try {
-      const blob = await new Promise((r) => $("cv").toBlob(r, "image/png"));
-      const dataUrl = await new Promise((res) => {
-        const fr = new FileReader();
-        fr.onload = () => res(fr.result);
-        fr.readAsDataURL(blob);
-      });
-      const name = $("name").value.trim() || "Token";
-      const side = Math.min(base.width, base.height);
-      const dpi = (OUT * item.grid.dpi) / side; // same on-map size as the original
+      const out = await makeOutput();
 
-      // 1) Turn the item on the map into the token (the library original is untouched)
+      step = "applying to the map";
       await OBR.scene.items.updateItems([itemId], (items) => {
         for (const it of items) {
           if (!it.metadata[META]) {
-            // remember the original so "Revert Token" can restore it
             it.metadata[META] = { image: it.image, grid: it.grid };
           }
-          it.image = { ...it.image, url: dataUrl, width: OUT, height: OUT, mime: "image/png" };
-          it.grid = { dpi, offset: { x: OUT / 2, y: OUT / 2 } };
+          it.image = { ...it.image, url: out.dataUrl, width: OUT, height: OUT, mime: "image/png" };
+          it.grid = { dpi: out.dpi, offset: { x: OUT / 2, y: OUT / 2 } };
         }
       });
 
-      // 2) Optional: also add the token to the Characters library as a new image
       if ($("alsoSave").checked) {
-        await OBR.assets.uploadImages(
-          [{ file: new File([blob], name + ".png", { type: "image/png" }), name,
-             grid: { dpi, offset: { x: OUT / 2, y: OUT / 2 } } }],
-          "CHARACTER"
-        );
+        step = "saving to library";
+        await uploadToLibrary(out);
       }
-      OBR.notification.show(`Token applied`, "SUCCESS");
+      OBR.notification.show("Token applied", "SUCCESS");
+      OBR.modal.close("com.quick-token/modal");
+    } catch (e) {
+      console.error("[Quick Token] failed while " + step, e);
+      $("msg").textContent = `Failed while ${step}: ${errText(e)}`;
+      $("save").disabled = false;
+      if (step === "applying to the map") $("fallbackRow").style.display = "flex";
+    }
+  };
+
+  // Fallback if Owlbear refuses to swap the image on the map
+  $("fallback").onclick = async () => {
+    try {
+      $("msg").textContent = "Saving to library…";
+      await uploadToLibrary(await makeOutput());
+      OBR.notification.show("Token saved to your Characters library", "SUCCESS");
       OBR.modal.close("com.quick-token/modal");
     } catch (e) {
       console.error(e);
-      $("msg").textContent = "Failed: " + e.message;
-      $("save").disabled = false;
+      $("msg").textContent = "Failed while saving to library: " + errText(e);
     }
   };
 
