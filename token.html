@@ -40,7 +40,7 @@
     <button id="save" disabled>Apply Token</button>
   </div>
   <div class="row" id="fallbackRow" style="display:none">
-    <button id="fallback" style="background:var(--card);color:var(--fg)">Save to library instead</button>
+    <button id="fallback" style="background:var(--card);color:var(--fg)">Save to library &amp; swap on map</button>
   </div>
 
 <script type="module">
@@ -139,6 +139,26 @@
     );
   }
 
+  async function setOriginalMeta() {
+    await OBR.scene.items.updateItems([itemId], (items) => {
+      for (const it of items) {
+        if (!it.metadata[META]) {
+          it.metadata[META] = {
+            image: { url: it.image.url, width: it.image.width, height: it.image.height, mime: it.image.mime },
+            grid: { dpi: it.grid.dpi, offset: { x: it.grid.offset.x, y: it.grid.offset.y } },
+          };
+        }
+      }
+    });
+  }
+  async function clearOriginalMeta() {
+    try {
+      await OBR.scene.items.updateItems([itemId], (items) => {
+        for (const it of items) delete it.metadata[META];
+      });
+    } catch (_) {}
+  }
+
   $("save").onclick = async () => {
     $("save").disabled = true;
     $("msg").textContent = "Applying…";
@@ -146,14 +166,18 @@
     try {
       const out = await makeOutput();
 
+      step = "saving revert info";
+      await setOriginalMeta();
+
       step = "applying to the map";
       await OBR.scene.items.updateItems([itemId], (items) => {
         for (const it of items) {
-          if (!it.metadata[META]) {
-            it.metadata[META] = { image: it.image, grid: it.grid };
-          }
-          it.image = { ...it.image, url: out.dataUrl, width: OUT, height: OUT, mime: "image/png" };
-          it.grid = { dpi: out.dpi, offset: { x: OUT / 2, y: OUT / 2 } };
+          it.image.url = out.dataUrl;
+          it.image.width = OUT;
+          it.image.height = OUT;
+          it.image.mime = "image/png";
+          it.grid.dpi = out.dpi;
+          it.grid.offset = { x: OUT / 2, y: OUT / 2 };
         }
       });
 
@@ -165,22 +189,46 @@
       OBR.modal.close("com.quick-token/modal");
     } catch (e) {
       console.error("[Quick Token] failed while " + step, e);
+      if (step === "applying to the map") await clearOriginalMeta();
       $("msg").textContent = `Failed while ${step}: ${errText(e)}`;
       $("save").disabled = false;
-      if (step === "applying to the map") $("fallbackRow").style.display = "flex";
+      if (step === "applying to the map") {
+        $("msg").textContent += "  Owlbear won't take an inline image here. Use the button below instead.";
+        $("fallbackRow").style.display = "flex";
+      }
     }
   };
 
-  // Fallback if Owlbear refuses to swap the image on the map
+  // Fallback: upload to the library, then pick it to swap onto the map item.
   $("fallback").onclick = async () => {
+    let step = "preparing image";
     try {
-      $("msg").textContent = "Saving to library…";
-      await uploadToLibrary(await makeOutput());
-      OBR.notification.show("Token saved to your Characters library", "SUCCESS");
+      $("fallback").disabled = true;
+      const out = await makeOutput();
+
+      step = "saving to library";
+      $("msg").textContent = "Confirm the upload dialog…";
+      await uploadToLibrary(out);
+
+      step = "picking the saved token";
+      $("msg").textContent = "Now select your new token in the picker and confirm.";
+      const picked = await OBR.assets.downloadImages(false, out.name, "CHARACTER");
+      if (!picked || !picked.length) throw new Error("nothing was selected");
+
+      step = "swapping the image on the map";
+      await setOriginalMeta();
+      await OBR.scene.items.updateItems([itemId], (items) => {
+        for (const it of items) {
+          it.image = picked[0].image;
+          it.grid = picked[0].grid;
+        }
+      });
+      OBR.notification.show("Token applied", "SUCCESS");
       OBR.modal.close("com.quick-token/modal");
     } catch (e) {
-      console.error(e);
-      $("msg").textContent = "Failed while saving to library: " + errText(e);
+      console.error("[Quick Token] failed while " + step, e);
+      $("msg").textContent = `Failed while ${step}: ${errText(e)}`;
+      $("fallback").disabled = false;
     }
   };
 
