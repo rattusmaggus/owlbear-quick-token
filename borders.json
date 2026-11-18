@@ -1,0 +1,8 @@
+{
+  "borders": [
+    { "name": "Gold",   "file": "gold.png" },
+    { "name": "Silver", "file": "silver.png" },
+    { "name": "Red",    "file": "red.png" },
+    { "name": "Black",  "file": "black.png" }
+  ]
+}
