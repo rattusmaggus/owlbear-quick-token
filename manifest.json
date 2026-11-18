@@ -4,13 +4,13 @@
   "manifest_version": 1,
   "description": "Select a character image, turn it into a circular token (with optional border) and save it to your Characters library.",
   "author": "RattusMaggus",
-  "icon": "/icon.svg",
+  "icon": "icon.svg",
   "action": {
     "title": "Quick Token",
-    "icon": "/icon.svg",
-    "popover": "/help.html",
+    "icon": "icon.svg",
+    "popover": "help.html",
     "height": 150,
     "width": 260
   },
-  "background_url": "/background.html"
+  "background_url": "background.html"
 }
