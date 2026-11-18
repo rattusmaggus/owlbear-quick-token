@@ -31,16 +31,10 @@
   <div>Border</div>
   <div class="borders" id="borders"></div>
   <input type="text" id="name" placeholder="Token name">
-  <label style="display:flex;gap:8px;align-items:center;font-size:13px">
-    <input type="checkbox" id="alsoSave"> Also save a copy to my Characters library
-  </label>
-  <div id="msg"></div>
+  <div id="msg">Saves the token to your Characters library, then swaps it onto the map.</div>
   <div class="row">
     <button id="cancel">Cancel</button>
-    <button id="save" disabled>Apply Token</button>
-  </div>
-  <div class="row" id="fallbackRow" style="display:none">
-    <button id="fallback" style="background:var(--card);color:var(--fg)">Save to library &amp; swap on map</button>
+    <button id="save" disabled>Save &amp; Swap on Map</button>
   </div>
 
 <script type="module">
@@ -160,58 +154,17 @@
   }
 
   $("save").onclick = async () => {
-    $("save").disabled = true;
-    $("msg").textContent = "Applying…";
     let step = "preparing image";
     try {
-      const out = await makeOutput();
-
-      step = "saving revert info";
-      await setOriginalMeta();
-
-      step = "applying to the map";
-      await OBR.scene.items.updateItems([itemId], (items) => {
-        for (const it of items) {
-          it.image.url = out.dataUrl;
-          it.image.width = OUT;
-          it.image.height = OUT;
-          it.image.mime = "image/png";
-          it.grid.dpi = out.dpi;
-          it.grid.offset = { x: OUT / 2, y: OUT / 2 };
-        }
-      });
-
-      if ($("alsoSave").checked) {
-        step = "saving to library";
-        await uploadToLibrary(out);
-      }
-      OBR.notification.show("Token applied", "SUCCESS");
-      OBR.modal.close("com.quick-token/modal");
-    } catch (e) {
-      console.error("[Quick Token] failed while " + step, e);
-      if (step === "applying to the map") await clearOriginalMeta();
-      $("msg").textContent = `Failed while ${step}: ${errText(e)}`;
-      $("save").disabled = false;
-      if (step === "applying to the map") {
-        $("msg").textContent += "  Owlbear won't take an inline image here. Use the button below instead.";
-        $("fallbackRow").style.display = "flex";
-      }
-    }
-  };
-
-  // Fallback: upload to the library, then pick it to swap onto the map item.
-  $("fallback").onclick = async () => {
-    let step = "preparing image";
-    try {
-      $("fallback").disabled = true;
+      $("save").disabled = true;
       const out = await makeOutput();
 
       step = "saving to library";
-      $("msg").textContent = "Confirm the upload dialog…";
+      $("msg").textContent = "1/2 Confirm Owlbear's upload dialog…";
       await uploadToLibrary(out);
 
       step = "picking the saved token";
-      $("msg").textContent = "Now select your new token in the picker and confirm.";
+      $("msg").textContent = "2/2 Select your new token in the picker and confirm.";
       const picked = await OBR.assets.downloadImages(false, out.name, "CHARACTER");
       if (!picked || !picked.length) throw new Error("nothing was selected");
 
@@ -227,8 +180,9 @@
       OBR.modal.close("com.quick-token/modal");
     } catch (e) {
       console.error("[Quick Token] failed while " + step, e);
+      if (step === "swapping the image on the map") await clearOriginalMeta();
       $("msg").textContent = `Failed while ${step}: ${errText(e)}`;
-      $("fallback").disabled = false;
+      $("save").disabled = false;
     }
   };
 
